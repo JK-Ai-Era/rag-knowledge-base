@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "rag-knowledge-base": {
+      "command": "bash",
+      "args": [
+        "-c",
+        "cd ~/Projects/rag-knowledge-base && source .venv/bin/activate && python -m src.mcp.server"
+      ],
+      "env": {
+        "PYTHONPATH": "~/Projects/rag-knowledge-base"
+      }
+    }
+  }
+}

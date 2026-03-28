@@ -1,149 +1,390 @@
-# 本地知识库 RAG 系统
+# RAG Knowledge Base
 
-基于本地部署的知识库检索系统，支持多项目管理，完全离线运行。
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.115%2B-green.svg)](https://fastapi.tiangolo.com/)
+[![License](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Qdrant](https://img.shields.io/badge/Qdrant-1.13%2B-red.svg)](https://qdrant.tech/)
 
-## 特性
+**本地知识库 RAG 系统** - 基于 BM25 + 向量检索 + Reranker 的混合搜索方案，支持多项目管理和 RAPTOR 层次化索引。
 
-- 🔒 **完全本地部署** - 数据不出境，隐私安全
-- 📁 **多项目管理** - 项目间数据严格隔离
-- 📄 **多格式支持** - PDF、Word、Markdown、代码文件
-- 🔍 **混合检索** - 语义搜索 + 关键词搜索
-- 🌐 **Web UI** - 现代化网页界面，支持拖拽上传
-- 🤖 **Claude Code 集成** - MCP Server 支持
-- 🚀 **Apple Silicon 优化** - MPS 加速支持
+---
 
-## 快速开始
+## ✨ 功能特性
 
-### 一键启动
+### 🔍 多模式搜索
 
-```bash
-cd ~/Projects/rag-knowledge-base
-./scripts/start-all.sh
+| 模式 | 说明 | 适用场景 |
+|------|------|----------|
+| **Semantic** | 纯向量语义搜索 | 概念查询、语义理解 |
+| **Keyword** | BM25 关键词搜索 | 精确匹配、专有名词 |
+| **Hybrid** | 向量 + BM25 + RRF 融合 | **推荐默认**，综合效果最好 |
+| **Hierarchical** | RAPTOR 层次化检索 | 长文档、需要文档级摘要 |
+
+### 🚀 核心能力
+
+- **混合搜索架构** - 向量检索 + BM25 关键词 + Reciprocal Rank Fusion
+- **Reranker 重排序** - BAAI/bge-reranker-v2-m3，分数提升到 0.99+
+- **RAPTOR 层次化索引** - 文档摘要生成 + 两阶段检索
+- **多项目管理** - 项目间数据严格隔离
+- **文件监控同步** - Watcher 自动监控文件夹变化
+- **完全本地部署** - 数据不出境，隐私安全
+
+### 📄 支持格式
+
+| 格式 | 解析器 |
+|------|--------|
+| PDF | MinerU / pypdf |
+| Word (.docx/.doc) | Unstructured / python-docx |
+| Excel (.xlsx/.xls) | Unstructured / openpyxl |
+| PowerPoint | Unstructured / python-pptx |
+| Markdown | 原生支持 |
+| 图片 (OCR) | pytesseract |
+| 代码文件 | 原生支持 |
+
+---
+
+## 🏗️ 技术架构
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        用户界面层                            │
+├──────────────┬──────────────┬──────────────┬───────────────┤
+│   CLI (ragctl)  │   REST API   │   MCP Server   │   Web UI    │
+└──────────────┴──────────────┴──────────────┴───────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                        搜索服务层                            │
+├─────────────────────────────────────────────────────────────┤
+│  SearchService → BM25Index → VectorStore → Reranker         │
+│                         ↓                                   │
+│              HierarchicalIndex (RAPTOR)                      │
+└─────────────────────────────────────────────────────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                        核心服务层                            │
+├──────────────┬──────────────┬──────────────┬───────────────┤
+│ DocumentService │ ProjectService │ WatcherManager │ ConsistencyChecker │
+└──────────────┴──────────────┴──────────────┴───────────────┘
+                              │
+┌─────────────────────────────────────────────────────────────┐
+│                        存储层                                │
+├──────────────┬──────────────┬──────────────┬───────────────┤
+│   SQLite     │   Qdrant     │   Ollama      │   FileSystem  │
+│  (元数据)     │  (向量库)    │  (Embedding)   │   (文档文件)   │
+└──────────────┴──────────────┴──────────────┴───────────────┘
 ```
 
-访问 http://localhost:8000/docs 查看 API 文档。
+### 模型配置
+
+| 模型 | 用途 | 大小 |
+|------|------|------|
+| qwen3:8b | 文档摘要生成 (RAPTOR) | 5.2 GB |
+| bge-m3 | 向量嵌入 | 1.2 GB |
+| bge-reranker-v2-m3 | 重排序 | ~500 MB |
+
+---
+
+## 🚀 快速开始
+
+### 环境要求
+
+- Python 3.10+
+- macOS / Linux
+- 16GB+ 内存
+- Ollama (用于嵌入模型)
+
+### 一键安装
+
+```bash
+# 克隆项目
+git clone https://github.com/jk576/rag-knowledge-base.git
+cd rag-knowledge-base
+
+# 创建虚拟环境
+python -m venv .venv
+source .venv/bin/activate
+
+# 安装依赖
+pip install -r requirements.txt
+
+# 安装 Ollama 模型
+ollama pull bge-m3:latest
+ollama pull qwen3:8b
+
+# 启动服务
+./scripts/start-all.sh
+```
 
 ### 手动启动
 
 ```bash
-# 1. 进入项目
-cd ~/Projects/rag-knowledge-base
+# 1. 启动 Qdrant
+docker run -d -p 6333:6333 -v $(pwd)/data/qdrant:/qdrant/storage qdrant/qdrant
+
+# 2. 启动 API
 source .venv/bin/activate
+uvicorn src.rag_api.main:app --host 0.0.0.0 --port 8000
 
-# 2. 启动 Qdrant (如未运行)
-./scripts/start-qdrant.sh
-
-# 3. 确保 Ollama 运行
-ollama serve
-
-# 4. 启动 API 服务
-uvicorn src.rag_api.main:app --reload
+# 3. 访问 API 文档
+open http://localhost:8000/docs
 ```
 
-### CLI 使用
+---
+
+## 📖 使用指南
+
+### CLI 命令 (ragctl)
 
 ```bash
-# 创建项目
-rag project-create "项目名称"
+# 登录认证
+ragctl auth login --username admin --password <密码>
 
-# 列出项目
-rag project-list
+# 项目管理
+ragctl project list                    # 列出项目
+ragctl project stats <项目名>           # 查看统计
+ragctl project check <项目名>           # 一致性检查
 
-# 上传文档
-rag ingest "项目ID" ./docs/
+# 搜索（4 种模式）
+ragctl search semantic <项目> <查询> -k 5              # 语义搜索
+ragctl search keyword <项目> <查询> -k 5               # 关键词搜索
+ragctl search hybrid <项目> <查询> -k 5                # 混合搜索（推荐）
+ragctl search hierarchical <项目> <查询> -k 5          # 层次化搜索
 
-# 搜索
-rag search "项目ID" "查询内容"
+# 获取完整内容（默认截断 300 字符）
+ragctl search hybrid <项目> <查询> -k 5 --full         # 显示完整内容
+
+# 服务管理
+ragctl service status                   # 查看服务状态
+ragctl watcher status                   # 查看监控状态
 ```
 
-## 技术栈
+### 搜索模式对比
 
-| 组件 | 选型 | 说明 |
-|------|------|------|
-| Embedding | Ollama + bge-m3 | 中文语义理解优秀 |
-| 向量数据库 | Qdrant | 高性能，支持过滤 |
-| 文档解析 | pypdf / MinerU | PDF 解析 |
-| API 框架 | FastAPI | 异步高性能 |
-| Web UI | Next.js + shadcn/ui | 现代化 React 界面 |
-| 元数据 | SQLite | 零配置 |
+| 模式 | 耗时 | 分数 | 适用场景 |
+|------|------|------|----------|
+| semantic | 2-3s | ~0.85 | 概念查询 |
+| keyword | 1-2s | ~0.80 | 精确匹配 |
+| hybrid | 4-5s | **~0.99** | 综合查询（推荐） |
+| hierarchical | 1-2s | ~0.79 | 长文档摘要 |
 
-## 项目结构
+### REST API
+
+```bash
+# 获取 Token
+TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login/json \
+  -H "Content-Type: application/json" \
+  -d '{"username": "admin", "password": "<密码>"}' | jq -r '.access_token')
+
+# 搜索
+curl -X POST "http://localhost:8000/api/v1/search" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "project_id": "<项目ID>",
+    "query": "查询内容",
+    "top_k": 10,
+    "search_mode": "hybrid",
+    "rerank": true
+  }'
+
+# 项目列表
+curl -s http://localhost:8000/api/v1/projects \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+---
+
+## ⚙️ 配置说明
+
+### 环境变量 (.env)
+
+```env
+# API 配置
+API_HOST=0.0.0.0
+API_PORT=8000
+APP_DEBUG=false
+
+# 认证
+AUTH_ENABLED=true
+JWT_SECRET=your-secret-key
+JWT_EXPIRE_HOURS=24
+
+# Ollama
+OLLAMA_HOST=http://localhost:11434
+EMBEDDING_MODEL=bge-m3:latest
+SUMMARY_MODEL=qwen3:8b
+
+# Qdrant
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+
+# HuggingFace 镜像（国内）
+HF_ENDPOINT=https://hf-mirror.com
+```
+
+### Watcher 配置
+
+```bash
+# 启用项目监控
+curl -X PUT "http://localhost:8000/api/v1/projects/<项目ID>" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"watcher_enabled": true}'
+```
+
+---
+
+## 📁 项目结构
 
 ```
 rag-knowledge-base/
 ├── src/
-│   ├── rag_api/          # FastAPI 服务
-│   ├── core/             # 核心逻辑
-│   ├── services/         # 业务服务
-│   ├── mcp/              # MCP Server
-│   └── cli/              # CLI 工具
-├── web/                  # Web UI (Next.js)
-│   └── my-app/
-│       ├── app/          # 页面路由
-│       ├── components/   # UI 组件
-│       └── lib/          # API 客户端
-├── scripts/              # 运维脚本
-│   ├── setup.sh          # 初始化
-│   ├── start-all.sh      # 一键启动
-│   ├── start-web.sh      # 启动 Web UI
-│   ├── start-qdrant.sh   # 启动 Qdrant
-│   └── service.sh        # 服务管理
-├── docs/                 # 文档
-├── data/                 # 数据目录
-└── db/                   # SQLite 数据库
+│   ├── rag_api/              # FastAPI 服务
+│   │   ├── main.py           # 应用入口
+│   │   ├── models/           # 数据模型
+│   │   └── routers/          # API 路由
+│   ├── core/                 # 核心逻辑
+│   │   ├── bm25_index.py     # BM25 索引
+│   │   ├── reranker.py       # Reranker
+│   │   ├── hierarchical_index.py  # RAPTOR
+│   │   ├── vector_store.py   # Qdrant 操作
+│   │   └── document_processor.py  # 文档处理
+│   ├── services/             # 业务服务
+│   │   ├── search_service.py # 搜索服务
+│   │   ├── document_service.py    # 文档服务
+│   │   └── project_service.py     # 项目服务
+│   ├── watcher/              # 文件监控
+│   │   ├── manager.py        # 监控管理器
+│   │   ├── handler.py        # 事件处理器
+│   │   └── sync.py           # 同步逻辑
+│   └── cli/                  # CLI 工具
+│       ├── main.py           # CLI 入口
+│       └── commands/         # 子命令
+├── scripts/                  # 运维脚本
+├── tests/                    # 测试用例
+├── docs/                     # 文档
+├── data/                     # 数据目录
+└── db/                       # SQLite 数据库
 ```
 
-## 测试
+---
+
+## 🔧 开发指南
+
+### 运行测试
 
 ```bash
-# 运行功能测试
-python scripts/test_system.py
+# 安装开发依赖
+pip install -e ".[dev]"
+
+# 运行测试
+pytest tests/ -v
+
+# 代码格式化
+black src/
+isort src/
 ```
 
-## 常见问题
+### 添加新文档格式支持
 
-### 什么是"片段"?
+1. 在 `src/core/document_processor.py` 添加解析器
+2. 在 `DocumentProcessor.SUPPORTED_FORMATS` 注册格式
+3. 添加对应测试用例
 
-**片段（Chunk）** 是文档被拆分后的小块文本。RAG系统会将上传的文档：
+---
 
-1. **解析** - 提取文档中的文本内容
-2. **切分** - 将长文本切分成适当大小的片段（通常几百个字符）
-3. **向量化** - 将每个片段转换为向量（Embedding）
-4. **存储** - 存入向量数据库用于语义搜索
+## 📊 性能优化
 
-例如，一个100页的PDF会被切分成数百个片段，搜索时系统会找到最相关的片段返回。
+### 已实现的优化
 
-### 为什么项目显示0片段？
+- ✅ BM25 索引线程安全 + 批量操作
+- ✅ Reranker 懒加载 + 缓存
+- ✅ Embedding 批量向量化
+- ✅ 数据库连接池
+- ✅ 异步 API 端点
 
-如果项目显示0片段，可能是：
-- 文档还在处理中（状态为"处理中"）
-- 文档解析失败（状态为"失败"）
-- 文档内容为空或无法提取文本
+### 推荐配置
 
-### 如何查看文档处理状态？
+| 场景 | 内存 | Qdrant 配置 |
+|------|------|-------------|
+| 小型 (<1万文档) | 8GB | 默认 |
+| 中型 (1-10万文档) | 16GB | 增大 cache |
+| 大型 (>10万文档) | 32GB+ | 分布式部署 |
 
-进入项目 → 文档列表，查看每个文档的"状态"列：
-- **已完成** - 文档已解析并创建片段
-- **处理中** - 正在解析文档
-- **失败** - 解析失败，可能是格式不支持或文件损坏
+---
 
-## 文档
+## ❓ 常见问题
 
-- [API 文档](docs/API.md) - RESTful API 参考
-- [MCP 配置](docs/MCP_SETUP.md) - Claude Code 集成
-- [自动启动配置](AUTOSTART.md) - 开机自启动设置
+### Q: 新建项目默认关闭监控？
 
-## 系统要求
+**A:** 是的，新建项目默认 `watcher_enabled=false`。需要手动启用：
 
-- macOS 14.0+ (Apple Silicon 优化)
-- Python 3.10+ (当前环境 3.14.3)
-- 16GB 内存
-- Docker (可选，用于 Qdrant)
+```bash
+ragctl project update <项目名> --watcher-enabled true
+```
 
-## 部署状态
+### Q: 搜索结果被截断？
 
-详见 [DEPLOY_STATUS.md](DEPLOY_STATUS.md)
+**A:** CLI 默认截断 300 字符，使用 `--full` 获取完整内容：
 
-## License
+```bash
+ragctl search hybrid <项目> <查询> --full
+```
 
-MIT
+### Q: 如何重新索引项目？
+
+**A:** 使用 reindex 命令：
+
+```bash
+ragctl project reindex <项目名>
+```
+
+### Q: 支持哪些嵌入模型？
+
+**A:** 任何 Ollama 支持的嵌入模型，推荐：
+- `bge-m3:latest` (中文，推荐)
+- `nomic-embed-text` (英文)
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] 支持更多文档格式 (EPUB, RTF)
+- [ ] 多语言支持 (英文、日文)
+- [ ] 分布式部署方案
+- [ ] Web UI 重构 (React + Tailwind)
+- [ ] 更多 Reranker 模型支持
+- [ ] 图谱索引 (Graph RAG)
+
+---
+
+## 🤝 贡献指南
+
+欢迎提交 Issue 和 Pull Request！
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/amazing-feature`)
+3. 提交更改 (`git commit -m 'Add amazing feature'`)
+4. 推送到分支 (`git push origin feature/amazing-feature`)
+5. 创建 Pull Request
+
+---
+
+## 📄 许可证
+
+本项目采用 [MIT](LICENSE) 许可证。
+
+---
+
+## 🙏 致谢
+
+- [Qdrant](https://qdrant.tech/) - 高性能向量数据库
+- [Ollama](https://ollama.ai/) - 本地 LLM 运行环境
+- [BGE Models](https://huggingface.co/BAAI) - 中文嵌入模型
+- [FastAPI](https://fastapi.tiangolo.com/) - 现代 Web 框架
+
+---
+
+<p align="center">
+  Made with ❤️ by <a href="https://github.com/jk576">jk576</a>
+</p>

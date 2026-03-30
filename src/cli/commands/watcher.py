@@ -135,3 +135,47 @@ def reset_stats(
         console.print(f"[green]✓ {msg}[/green]")
     else:
         console.print(f"[red]✗ 重置失败[/red]")
+
+
+@app.command()
+def refresh(
+    project_name: str = typer.Argument(..., help="项目名称"),
+    enable: bool = typer.Option(True, "--enable/--disable", help="启用或禁用监控"),
+):
+    """
+    刷新项目监控状态（即时生效，无需重启 watcher）
+    
+    用法：
+      ragctl watcher refresh yunxi --enable    # 启用监控
+      ragctl watcher refresh yunxi --disable   # 禁用监控
+    """
+    result = api_client.post(
+        "/api/v1/watcher/refresh",
+        json_data={"project_name": project_name, "watcher_enabled": enable}
+    )
+    
+    if result and result.get("success"):
+        action = "启用" if enable else "禁用"
+        console.print(f"[green]✓ {action}监控: {project_name}[/green]")
+        console.print(f"[dim]{result.get('message', '')}[/dim]")
+    else:
+        console.print(f"[red]✗ 刷新失败: {result.get('message', '未知错误') if result else '无响应'}[/red]")
+
+
+@app.command("sync-all")
+def sync_all():
+    """
+    同步所有 watcher_enabled 项目
+    
+    扫描数据库中所有 watcher_enabled=1 的项目，确保 watcher 监控状态一致。
+    适用于手动修改数据库后批量同步。
+    """
+    result = api_client.post("/api/v1/watcher/sync-all")
+    
+    if result and result.get("success"):
+        data = result.get("data", {})
+        synced_count = data.get("synced_count", 0)
+        console.print(f"[green]✓ 已同步 {synced_count} 个项目的监控状态[/green]")
+        console.print(f"[dim]{result.get('message', '')}[/dim]")
+    else:
+        console.print(f"[red]✗ 同步失败: {result.get('message', '未知错误') if result else '无响应'}[/red]")

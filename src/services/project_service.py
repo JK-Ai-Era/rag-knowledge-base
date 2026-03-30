@@ -133,15 +133,44 @@ class ProjectService:
         self.db.delete(project)
         self.db.commit()
     
-    def list_documents(self, project_id: str, skip: int = 0, limit: int = 100):
-        """列出项目下的文档"""
+    def list_documents(
+        self, 
+        project_id: str, 
+        skip: int = 0, 
+        limit: int = 100,
+        filename: str = None,
+    ):
+        """列出项目下的文档
+        
+        Args:
+            project_id: 项目 ID
+            skip: 跳过数量（分页偏移）
+            limit: 返回数量
+            filename: 文件名搜索（模糊匹配）
+        """
         from src.rag_api.models.database import Document
         from src.rag_api.models.schemas import DocumentResponse
         
-        documents = self.db.query(Document).filter(
+        query = self.db.query(Document).filter(
             Document.project_id == project_id
-        ).offset(skip).limit(limit).all()
-        return [DocumentResponse.model_validate(d) for d in documents]
+        )
+        
+        # 文件名搜索（模糊匹配）
+        if filename:
+            query = query.filter(Document.filename.ilike(f"%{filename}%"))
+        
+        # 获取总数
+        total = query.count()
+        
+        # 分页查询
+        documents = query.offset(skip).limit(limit).all()
+        
+        return {
+            "items": [DocumentResponse.model_validate(d) for d in documents],
+            "total": total,
+            "skip": skip,
+            "limit": limit,
+        }
     
     def get_document(self, document_id: str):
         """获取文档"""

@@ -41,30 +41,68 @@ def _resolve_project_id(project: str) -> Optional[str]:
 @app.command("list")
 def list_documents(
     project: str = typer.Argument(..., help="项目名称或ID"),
-    limit: int = typer.Option(100, "--limit", "-l", help="返回数量"),
+    limit: int = typer.Option(100, "--limit", "-l", help="每页返回数量"),
+    page: int = typer.Option(1, "--page", "-p", help="页码（从 1 开始）"),
+    search: str = typer.Option(None, "--search", "-s", help="文件名搜索"),
+    full_id: bool = typer.Option(False, "--full", "-f", help="显示完整 ID"),
 ):
-    """列出项目文档"""
+    """列出项目文档
+    
+    支持分页和文件名搜索：
+    
+    Examples:
+        ragctl doc list yunxi                    # 显示前 100 个文档
+        ragctl doc list yunxi -l 20             # 每页 20 个
+        ragctl doc list yunxi -p 2              # 第 2 页
+        ragctl doc list yunxi -s "调研"         # 搜索文件名包含"调研"
+        ragctl doc list yunxi -s ".xlsx"        # 搜索所有 Excel 文件
+    """
     # 解析项目名称为 ID
     project_id = _resolve_project_id(project)
     
+    # 计算偏移量
+    skip = (page - 1) * limit
+    
+    # 构建请求参数
+    params = {"skip": skip, "limit": limit}
+    if search:
+        params["filename"] = search
+    
     result = api_client.get(
         f"/api/v1/projects/{project_id}/documents",
-        params={"limit": limit},
+        params=params,
     )
     
     if not result or not result.get("success"):
         console.print("[red]获取文档列表失败[/red]")
         return
     
-    data = result.get("data", [])
-    if isinstance(data, dict):
-        data = data.get("items", data.get("documents", []))
+    data = result.get("data", {})
     
-    if not data:
-        console.print("[yellow]项目中没有文档[/yellow]")
+    # 支持新旧两种格式
+    if isinstance(data, dict):
+        items = data.get("items", data.get("documents", []))
+        total = data.get("total", len(items))
+    else:
+        items = data
+        total = len(items)
+    
+    if not items:
+        if search:
+            console.print(f"[yellow]没有找到匹配 '{search}' 的文档[/yellow]")
+        else:
+            console.print("[yellow]项目中没有文档[/yellow]")
         return
     
-    table = Table(title=f"📄 文档列表 (共 {len(data)} 个)")
+    # 构建标题
+    title = f"📄 文档列表"
+    if search:
+        title += f" (搜索: '{search}')"
+    title += f" — 共 {total} 个"
+    if total > len(items):
+        title += f"，显示第 {page} 页 ({len(items)} 个)"
+    
+    table = Table(title=title)
     table.add_column("ID", style="cyan", no_wrap=True)
     table.add_column("文件名", style="magenta")
     table.add_column("大小", justify="right")
@@ -72,7 +110,7 @@ def list_documents(
     table.add_column("分块", justify="right")
     table.add_column("状态", justify="center")
     
-    for doc in data:
+    for doc in items:
         doc_id = doc.get("id", "")
         filename = doc.get("filename", "-")
         file_size = doc.get("file_size", 0)
@@ -90,8 +128,14 @@ def list_documents(
         else:
             status_display = status
         
+        # ID 显示格式
+        if full_id:
+            id_display = doc_id
+        else:
+            id_display = doc_id[:8] + "..." if len(doc_id) > 8 else doc_id
+        
         table.add_row(
-            doc_id[:12] + "..." if len(doc_id) > 12 else doc_id,
+            id_display,
             filename[:40] + "..." if len(filename) > 40 else filename,
             format_size(file_size) if file_size else "-",
             doc_type,
@@ -100,6 +144,11 @@ def list_documents(
         )
     
     console.print(table)
+    
+    # 显示分页提示
+    if total > len(items):
+        total_pages = (total + limit - 1) // limit
+        console.print(f"\n[dim]提示: 共 {total_pages} 页，使用 -p {page+1} 查看下一页[/dim]")
 
 
 @app.command()

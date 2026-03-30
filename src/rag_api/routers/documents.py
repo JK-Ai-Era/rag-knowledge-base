@@ -65,14 +65,22 @@ async def list_documents(
     project_id: str,
     skip: int = 0,
     limit: int = 100,
+    filename: str = None,
     db: Session = Depends(get_db),
 ):
-    """列出项目下的所有文档"""
+    """列出项目下的所有文档
+    
+    Args:
+        project_id: 项目 ID
+        skip: 跳过数量（分页偏移）
+        limit: 返回数量（默认 100）
+        filename: 文件名搜索（模糊匹配）
+    """
     from src.services.project_service import ProjectService
     
     service = ProjectService(db)
-    documents = service.list_documents(project_id, skip=skip, limit=limit)
-    return APIResponse(success=True, data=documents)
+    result = service.list_documents(project_id, skip=skip, limit=limit, filename=filename)
+    return APIResponse(success=True, data=result)
 
 
 @router.get("/{project_id}/documents/{document_id}", response_model=APIResponse)

@@ -5,7 +5,9 @@
 - Office: Unstructured (docx, xlsx, pptx)
 - 图片: pytesseract (OCR)
 - 文本: 直接读取
-- 代码: CommentExtractor (只提取注释)
+
+注意：代码文件不入 RAG 索引。
+代码查找应该使用 grep/ripgrep 工具，更精确、更高效。
 """
 
 import logging
@@ -24,29 +26,17 @@ class DocumentProcessor:
     Office 文档 (docx/xlsx/pptx) 优先使用 Unstructured 解析，
     失败时回退到原生解析器。
     
-    代码文件只提取注释，不提取代码本身。
+    代码文件不入 RAG 索引，推荐使用 grep/ripgrep 查找代码。
     """
 
     def __init__(self):
         self.mineru_available = self._check_mineru()
         self.unstructured_available = self._check_unstructured()
-        self.comment_extractor = self._init_comment_extractor()
 
         if self.unstructured_available:
             logger.info("✅ Unstructured 解析器已启用")
         if self.mineru_available:
             logger.info("✅ MinerU 解析器已启用")
-        if self.comment_extractor:
-            logger.info("✅ CommentExtractor 已启用（代码注释提取）")
-    
-    def _init_comment_extractor(self):
-        """初始化代码注释提取器"""
-        try:
-            from src.core.comment_extractor import CommentExtractor
-            return CommentExtractor()
-        except ImportError as e:
-            logger.warning(f"CommentExtractor 导入失败: {e}")
-            return None
 
     def _check_mineru(self) -> bool:
         """检查 MinerU 是否可用（通过 Python 3.11 子进程）"""
@@ -209,7 +199,9 @@ class DocumentProcessor:
         elif doc_type == "txt":
             return self._extract_txt(file_path)
         elif doc_type == "code":
-            return self._extract_code(file_path)
+            # 代码文件不入 RAG 索引
+            # 推荐使用 grep/ripgrep 查找代码
+            raise ValueError(f"代码文件不入 RAG 索引，请使用 grep 查找: {file_path.name}")
         else:
             return self._extract_txt(file_path)
 
@@ -420,39 +412,3 @@ class DocumentProcessor:
             raise ValueError("pytesseract 或 Pillow 未安装，无法处理图片")
         except Exception as e:
             raise ValueError(f"图片 OCR 失败: {e}")
-
-    def _extract_code(self, file_path: Path) -> str:
-        """提取代码文件 - 只提取注释
-        
-        代码本身不入 RAG 索引，避免分块破坏语法结构。
-        只提取注释部分用于语义搜索。
-        
-        Args:
-            file_path: 文件路径
-            
-        Returns:
-            提取的注释内容（格式化为 Markdown）
-            
-        Raises:
-            ValueError: 文件无注释或提取失败时抛出（不入 RAG 索引）
-        """
-        # 优先使用 CommentExtractor
-        if self.comment_extractor:
-            try:
-                comments = self.comment_extractor.extract(file_path)
-                if comments:
-                    logger.debug(f"提取代码注释: {file_path.name} - {len(comments)} 字符")
-                    return comments
-                else:
-                    # 没有注释，跳过索引（抛出异常让调用方处理）
-                    raise ValueError(f"代码文件无注释内容，跳过索引: {file_path.name}")
-            except ValueError as e:
-                # 如果是"无注释"的情况，重新抛出让调用方跳过
-                if "无注释" in str(e):
-                    raise
-                # 其他错误也跳过索引
-                logger.warning(f"注释提取失败: {e}")
-                raise ValueError(f"注释提取失败，跳过索引: {file_path.name}")
-        
-        # CommentExtractor 不可用，跳过代码文件
-        raise ValueError(f"CommentExtractor 不可用，跳过代码文件: {file_path.name}")

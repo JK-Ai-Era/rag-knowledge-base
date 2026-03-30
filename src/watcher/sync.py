@@ -27,10 +27,11 @@ from src.services.document_service import DocumentService
 # 从统一配置导入文件类型定义
 from src.core.comment_extractor import (
     DOC_EXTENSIONS,
-    CODE_EXTENSIONS,
     IMAGE_EXTENSIONS,
-    SUPPORTED_EXTENSIONS,
 )
+
+# 支持的文件扩展名（不包括代码文件）
+SUPPORTED_EXTENSIONS = DOC_EXTENSIONS | IMAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -436,7 +437,9 @@ class FileSync:
             file_path: 文件路径
             
         Returns:
-            文档类型: 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'image' | 'md' | 'txt' | 'code'
+            文档类型: 'pdf' | 'docx' | 'xlsx' | 'pptx' | 'image' | 'md' | 'txt'
+            
+        注意：代码文件不入 RAG 索引，此方法不会返回 'code' 类型
         """
         ext = file_path.suffix.lower()
         
@@ -454,10 +457,6 @@ class FileSync:
         # 图片类型（使用统一配置）
         if ext in IMAGE_EXTENSIONS:
             return "image"
-        
-        # 代码类型（使用统一配置，统一返回 'code'）
-        if ext in CODE_EXTENSIONS:
-            return "code"
         
         return "other"
     

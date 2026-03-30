@@ -442,29 +442,42 @@ class CommentExtractor:
             )
             
             if result.returncode == 0 and result.stdout.strip():
-                # 解析输出
                 output = result.stdout.strip()
-                # 去掉文件头，只返回注释内容
                 lines = output.split('\n')
-                # 找到 "## Comments" 后的内容
-                comments_start = False
                 comments = []
+                current_comment = []
+                in_comment_block = False
+                
                 for line in lines:
                     if '## Comments' in line:
-                        comments_start = True
                         continue
-                    if comments_start and line.strip():
-                        # 解析注释行
-                        if line.startswith('### Comment'):
-                            continue
+                    
+                    if line.startswith('### Comment'):
+                        # 保存之前的注释块
+                        if current_comment:
+                            comments.append('\n'.join(current_comment))
+                            current_comment = []
+                        in_comment_block = True
+                        continue
+                    
+                    if in_comment_block:
+                        if line.strip():
+                            current_comment.append(line.strip())
+                        elif current_comment:
+                            # 只有当已经有内容时，空行才表示注释块结束
+                            in_comment_block = False
+                    else:
+                        # 单行注释格式: "1. xxx"
                         match = re.match(r'^\d+\.\s*(.+)$', line)
                         if match:
                             comments.append(match.group(1))
-                        elif not line.startswith('#'):
-                            comments.append(line.strip())
+                
+                # 处理最后一个注释块
+                if current_comment:
+                    comments.append('\n'.join(current_comment))
+                
                 return comments
             else:
-                # 无注释或错误
                 return []
                 
         except subprocess.TimeoutExpired:
@@ -500,20 +513,35 @@ class CommentExtractor:
             if result.returncode == 0 and result.stdout.strip():
                 output = result.stdout.strip()
                 lines = output.split('\n')
-                comments_start = False
                 comments = []
+                current_comment = []
+                in_comment_block = False
+                
                 for line in lines:
                     if '## Comments' in line:
-                        comments_start = True
                         continue
-                    if comments_start and line.strip():
-                        if line.startswith('### Comment'):
-                            continue
+                    
+                    if line.startswith('### Comment'):
+                        if current_comment:
+                            comments.append('\n'.join(current_comment))
+                            current_comment = []
+                        in_comment_block = True
+                        continue
+                    
+                    if in_comment_block:
+                        if line.strip():
+                            current_comment.append(line.strip())
+                        elif current_comment:
+                            # 只有当已经有内容时，空行才表示注释块结束
+                            in_comment_block = False
+                    else:
                         match = re.match(r'^\d+\.\s*(.+)$', line)
                         if match:
                             comments.append(match.group(1))
-                        elif not line.startswith('#'):
-                            comments.append(line.strip())
+                
+                if current_comment:
+                    comments.append('\n'.join(current_comment))
+                
                 return comments
             else:
                 return []

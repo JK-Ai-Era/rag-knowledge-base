@@ -18,9 +18,15 @@ import (
 )
 
 func main() {
-	// 从 stdin 读取代码
+	// 从 stdin 读取代码（增大缓冲区以支持长行）
+	const maxLineLength = 10 * 1024 * 1024 // 10MB
 	var content strings.Builder
 	scanner := bufio.NewScanner(os.Stdin)
+	
+	// 设置更大的缓冲区
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, maxLineLength)
+	
 	for scanner.Scan() {
 		content.WriteString(scanner.Text())
 		content.WriteString("\n")

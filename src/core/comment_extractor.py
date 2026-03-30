@@ -5,14 +5,17 @@
 
 改进点：
 1. Python 使用 AST 解析，准确区分注释和字符串
-2. JavaScript/Java/C 使用 AST 解析（避免误识别字符串）
-3. 文件类型配置统一管理
+2. JavaScript/TypeScript 使用 AST 解析
+3. Go 使用 go/ast 解析
+4. 文件类型配置统一管理
 """
 
 import ast
 import io
 import logging
+import os
 import re
+import subprocess
 import tokenize
 from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple, Union
@@ -73,6 +76,12 @@ def get_file_category(file_path: Union[str, Path]) -> str:
 # AST 解析器可用性检查
 # ============================================================================
 
+# 脚本路径
+SCRIPTS_DIR = Path(__file__).parent.parent.parent / "scripts"
+TS_COMMENTS_SCRIPT = SCRIPTS_DIR / "ts_comments.js"
+GO_COMMENTS_SCRIPT = SCRIPTS_DIR / "extract_go_comments.go"
+
+
 def _check_esprima() -> bool:
     """检查 esprima (JavaScript) 是否可用"""
     try:
@@ -100,10 +109,38 @@ def _check_pycparser() -> bool:
         return False
 
 
+def _check_node() -> bool:
+    """检查 Node.js 是否可用"""
+    try:
+        result = subprocess.run(
+            ["node", "--version"],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _check_go() -> bool:
+    """检查 Go 是否可用"""
+    try:
+        result = subprocess.run(
+            ["go", "version"],
+            capture_output=True,
+            timeout=5
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 # 全局可用性标志
 ESPRIMA_AVAILABLE = _check_esprima()
 JAVALANG_AVAILABLE = _check_javalang()
 PYCPARSER_AVAILABLE = _check_pycparser()
+NODE_AVAILABLE = _check_node()
+GO_AVAILABLE = _check_go()
 
 
 # ============================================================================
@@ -262,6 +299,10 @@ class CommentExtractor:
                     logger.debug("esprima 不可用，使用正则提取 JavaScript 注释")
                     return self._extract_generic_comments(content, language)
             
+            elif language in ('typescript', 'tsx'):
+                # TypeScript 使用 Node.js + @babel/parser
+                return self._extract_typescript_comments(file_path, content)
+            
             elif language == 'java':
                 if JAVALANG_AVAILABLE:
                     return self._extract_java_comments(content, file_path)
@@ -275,6 +316,10 @@ class CommentExtractor:
                 else:
                     logger.debug("pycparser 不可用，使用正则提取 C 注释")
                     return self._extract_generic_comments(content, language)
+            
+            elif language == 'go':
+                # Go 使用 go/ast
+                return self._extract_go_comments(file_path, content)
             
             else:
                 # 其他语言使用正则
@@ -376,6 +421,109 @@ class CommentExtractor:
         if len(result) > 500:
             result = result[:500] + '...'
         return result
+    
+    # ========================================================================
+    # TypeScript AST 解析（使用 Node.js + @babel/parser）
+    # ========================================================================
+    
+    def _extract_typescript_comments(self, file_path: Path, content: str) -> List[str]:
+        """使用 Node.js + @babel/parser 提取 TypeScript 注释"""
+        if not NODE_AVAILABLE or not TS_COMMENTS_SCRIPT.exists():
+            logger.debug("Node.js 或 TypeScript 脚本不可用，使用正则")
+            return self._extract_generic_comments(content, 'typescript')
+        
+        try:
+            result = subprocess.run(
+                ["node", str(TS_COMMENTS_SCRIPT), str(file_path)],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                cwd=str(SCRIPTS_DIR)
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                # 解析输出
+                output = result.stdout.strip()
+                # 去掉文件头，只返回注释内容
+                lines = output.split('\n')
+                # 找到 "## Comments" 后的内容
+                comments_start = False
+                comments = []
+                for line in lines:
+                    if '## Comments' in line:
+                        comments_start = True
+                        continue
+                    if comments_start and line.strip():
+                        # 解析注释行
+                        if line.startswith('### Comment'):
+                            continue
+                        match = re.match(r'^\d+\.\s*(.+)$', line)
+                        if match:
+                            comments.append(match.group(1))
+                        elif not line.startswith('#'):
+                            comments.append(line.strip())
+                return comments
+            else:
+                # 无注释或错误
+                return []
+                
+        except subprocess.TimeoutExpired:
+            logger.warning(f"TypeScript 解析超时: {file_path}")
+            return self._extract_generic_comments(content, 'typescript')
+        except Exception as e:
+            logger.warning(f"TypeScript 解析失败: {e}")
+            return self._extract_generic_comments(content, 'typescript')
+    
+    # ========================================================================
+    # Go AST 解析（使用 go/ast）
+    # ========================================================================
+    
+    def _extract_go_comments(self, file_path: Path, content: str) -> List[str]:
+        """使用 go/ast 提取 Go 注释
+        
+        通过 stdin 传递代码给 Go 脚本，避免 go run 的路径限制。
+        """
+        if not GO_AVAILABLE or not GO_COMMENTS_SCRIPT.exists():
+            logger.debug("Go 或脚本不可用，使用正则")
+            return self._extract_generic_comments(content, 'go')
+        
+        try:
+            # 通过 stdin 传递代码
+            result = subprocess.run(
+                ["go", "run", str(GO_COMMENTS_SCRIPT)],
+                input=content,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            
+            if result.returncode == 0 and result.stdout.strip():
+                output = result.stdout.strip()
+                lines = output.split('\n')
+                comments_start = False
+                comments = []
+                for line in lines:
+                    if '## Comments' in line:
+                        comments_start = True
+                        continue
+                    if comments_start and line.strip():
+                        if line.startswith('### Comment'):
+                            continue
+                        match = re.match(r'^\d+\.\s*(.+)$', line)
+                        if match:
+                            comments.append(match.group(1))
+                        elif not line.startswith('#'):
+                            comments.append(line.strip())
+                return comments
+            else:
+                return []
+                    
+        except subprocess.TimeoutExpired:
+            logger.warning(f"Go 解析超时: {file_path}")
+            return self._extract_generic_comments(content, 'go')
+        except Exception as e:
+            logger.warning(f"Go 解析失败: {e}")
+            return self._extract_generic_comments(content, 'go')
     
     # ========================================================================
     # Java AST 解析

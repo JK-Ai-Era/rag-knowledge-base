@@ -39,3 +39,4 @@ logs/
 
 # 模型缓存
 .cache/
+scripts/node_modules/

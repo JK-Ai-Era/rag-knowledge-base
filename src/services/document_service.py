@@ -162,13 +162,17 @@ class DocumentService:
                 chunks=chunk_objects,
                 document_id=doc_id,
                 project_id=project_id,
-                filename=actual_filename
+                filename=actual_filename,
+                source_path=source_path  # 传递原始文件路径
             )
             
             # 4. 更新文档状态
             doc.status = "completed" if vector_result["success_count"] > 0 else "failed"
             doc.chunk_count = vector_result["success_count"]
-            if vector_result["failed_count"] > 0:
+            # 使用详细的错误信息
+            if vector_result.get("error_details"):
+                doc.error_message = vector_result["error_details"]
+            elif vector_result["failed_count"] > 0:
                 doc.error_message = (
                     f"{vector_result['failed_count']}/{len(chunk_objects)} chunks 向量化失败"
                 )
@@ -293,21 +297,30 @@ class DocumentService:
         chunks: List[ChunkWithMetadata],
         document_id: str,
         project_id: str,
-        filename: str
+        filename: str,
+        source_path: Optional[str] = None  # 原始文件完整路径
     ) -> Dict[str, int]:
         """
         向量化 chunks 并保存到数据库和向量库
         
         优化：批量获取 embedding，批量添加向量
         
+        Args:
+            chunks: 分块列表
+            document_id: 文档ID
+            project_id: 项目ID
+            filename: 文件名
+            source_path: 原始文件完整路径（用于 Agent read 源文件）
+            
         Returns:
-            {"success_count": int, "failed_count": int}
+            {"success_count": int, "failed_count": int, "error_details": str}
         """
         if not chunks:
-            return {"success_count": 0, "failed_count": 0}
+            return {"success_count": 0, "failed_count": 0, "error_details": "无分块"}
         
         success_count = 0
         failed_count = 0
+        error_details = []
         
         # 1. 首先保存所有 chunks 到数据库（无 vector_id）
         chunk_records = []
@@ -332,28 +345,40 @@ class DocumentService:
             self.db.add(chunk)
             chunk_records.append(chunk)
         
-        self.db.commit()  # 先保存 chunks 获取 ID
+        try:
+            self.db.commit()  # 先保存 chunks 获取 ID
+        except Exception as e:
+            logger.error(f"[{document_id}] 保存分块失败: {e}")
+            self.db.rollback()
+            return {"success_count": 0, "failed_count": len(chunks), "error_details": f"保存分块失败: {e}"}
         
-        # 2. 批量向量化（优化：一次获取所有 embedding）
+        # 2. 批量向量化（逐个处理，记录详细错误）
         logger.info(f"[{document_id}] 批量向量化 {len(chunk_records)} 个 chunks...")
-        # 同步逐个向量化
         embeddings = []
-        for c in chunk_records:
+        vectorization_errors = []
+        
+        for idx, c in enumerate(chunk_records):
             try:
                 emb = self.embedding.embed_text_sync(c.content)
-                embeddings.append(emb)
+                if not emb or len(emb) == 0:
+                    vectorization_errors.append(f"chunk {idx}: 返回空向量")
+                    embeddings.append(None)
+                elif all(v == 0.0 for v in emb):
+                    vectorization_errors.append(f"chunk {idx}: 零向量（可能服务未就绪）")
+                    embeddings.append(None)
+                else:
+                    embeddings.append(emb)
             except Exception as e:
-                logger.error(f"向量化失败: {e}")
-                embeddings.append([0.0] * 1024)  # 使用零向量作为占位
+                vectorization_errors.append(f"chunk {idx}: {str(e)[:50]}")
+                embeddings.append(None)
         
-        # 3. 批量添加到向量库
+        # 3. 筛选有效的向量化结果
         payloads = []
         valid_embeddings = []
         valid_chunks = []
         
         for idx, (chunk, embedding) in enumerate(zip(chunk_records, embeddings)):
-            if not embedding or all(v == 0.0 for v in embedding):
-                logger.warning(f"Chunk {chunk.id} 向量化结果无效")
+            if embedding is None:
                 failed_count += 1
                 continue
             
@@ -373,37 +398,77 @@ class DocumentService:
                 "symbols": metadata.get("symbols", []),
             }
             payloads.append(payload)
-            valid_embeddings.append(embedding)  # 保存有效的 embedding
+            valid_embeddings.append(embedding)
             valid_chunks.append(chunk)
         
+        # 4. 处理向量化结果
         if payloads:
-            vector_ids = self.vector_store.add_vectors_batch(
-                project_id=project_id,
-                vectors=valid_embeddings,  # 使用正确的 embeddings 列表
-                payloads=payloads
-            )
-            
-            # 更新 chunk 记录的 vector_id
-            for chunk, vector_id in zip(valid_chunks, vector_ids):
-                if vector_id:
-                    chunk.vector_id = vector_id
-                    success_count += 1
-                else:
-                    failed_count += 1
+            try:
+                vector_ids = self.vector_store.add_vectors_batch(
+                    project_id=project_id,
+                    vectors=valid_embeddings,
+                    payloads=payloads
+                )
+                
+                # 更新 chunk 记录的 vector_id
+                for chunk, vector_id in zip(valid_chunks, vector_ids):
+                    if vector_id:
+                        chunk.vector_id = vector_id
+                        success_count += 1
+                    else:
+                        failed_count += 1
+                        # 向量库添加失败，删除该分块
+                        self.db.delete(chunk)
+                
+            except Exception as e:
+                logger.error(f"[{document_id}] 添加向量失败: {e}")
+                error_details.append(f"向量库添加失败: {str(e)[:50]}")
+                # 所有有效分块都失败
+                for chunk in valid_chunks:
                     self.db.delete(chunk)
+                failed_count += len(valid_chunks)
         else:
             # 没有有效的向量，删除所有 chunks
+            logger.warning(f"[{document_id}] 无有效向量，清理所有分块")
             for chunk in chunk_records:
                 self.db.delete(chunk)
             failed_count = len(chunk_records)
         
-        self.db.commit()
+        # 5. 最终 commit（确保删除操作生效）
+        try:
+            self.db.commit()
+        except Exception as e:
+            logger.error(f"[{document_id}] 最终 commit 失败: {e}")
+            self.db.rollback()
+            # 尝试重新删除残留的 chunks
+            try:
+                remaining_chunks = self.db.query(ChunkModel).filter(
+                    ChunkModel.document_id == document_id
+                ).all()
+                for chunk in remaining_chunks:
+                    if chunk.vector_id is None:  # 只删除无向量的
+                        self.db.delete(chunk)
+                self.db.commit()
+            except Exception as e2:
+                logger.error(f"[{document_id}] 清理残留分块失败: {e2}")
+        
+        # 6. 构建详细错误信息
+        if vectorization_errors:
+            error_details.append(f"向量化失败: {len(vectorization_errors)}/{len(chunks)}")
+            if len(vectorization_errors) <= 5:
+                error_details.extend(vectorization_errors)
+            else:
+                error_details.extend(vectorization_errors[:3])
+                error_details.append(f"... 共 {len(vectorization_errors)} 个错误")
+        
+        error_message = "; ".join(error_details) if error_details else None
         
         logger.info(f"[{document_id}] 向量化完成：{success_count} 成功，{failed_count} 失败")
         
         return {
             "success_count": success_count,
             "failed_count": failed_count,
+            "error_details": error_message,
         }
     
     def _update_project_stats(

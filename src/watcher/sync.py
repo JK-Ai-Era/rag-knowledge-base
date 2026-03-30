@@ -28,9 +28,11 @@ from src.services.document_service import DocumentService
 from src.core.comment_extractor import (
     DOC_EXTENSIONS,
     IMAGE_EXTENSIONS,
+    CODE_EXTENSIONS,
+    CONFIG_EXTENSIONS,  # 配置文件类型（不入索引）
 )
 
-# 支持的文件扩展名（不包括代码文件）
+# 支持的文件扩展名（不包括代码文件和配置文件）
 SUPPORTED_EXTENSIONS = DOC_EXTENSIONS | IMAGE_EXTENSIONS
 
 logger = logging.getLogger(__name__)

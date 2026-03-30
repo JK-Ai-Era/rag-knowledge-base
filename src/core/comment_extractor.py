@@ -40,11 +40,19 @@ CODE_EXTENSIONS: Set[str] = {
     ".rb", ".php",
 }
 
+# 配置文件类型（视作代码，不入 RAG 索引）
+CONFIG_EXTENSIONS: Set[str] = {
+    ".json", ".yaml", ".yml", ".toml",
+    ".ini", ".cfg", ".conf",
+    ".env", ".properties",
+    ".xml",  # 配置文件/数据格式
+}
+
 IMAGE_EXTENSIONS: Set[str] = {
     ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".tiff", ".webp",
 }
 
-SUPPORTED_EXTENSIONS = DOC_EXTENSIONS | CODE_EXTENSIONS | IMAGE_EXTENSIONS
+SUPPORTED_EXTENSIONS = DOC_EXTENSIONS | IMAGE_EXTENSIONS
 
 # 文件大小限制（避免处理超大文件）
 MAX_FILE_SIZE_MB = 10  # 代码文件最大 10MB
@@ -58,7 +66,7 @@ def get_file_category(file_path: Union[str, Path]) -> str:
         file_path: 文件路径
         
     Returns:
-        文件类别: 'doc' | 'code' | 'image' | 'unknown'
+        文件类别: 'doc' | 'code' | 'config' | 'image' | 'unknown'
     """
     ext = Path(file_path).suffix.lower()
     
@@ -66,6 +74,8 @@ def get_file_category(file_path: Union[str, Path]) -> str:
         return 'doc'
     elif ext in CODE_EXTENSIONS:
         return 'code'
+    elif ext in CONFIG_EXTENSIONS:
+        return 'config'
     elif ext in IMAGE_EXTENSIONS:
         return 'image'
     else:

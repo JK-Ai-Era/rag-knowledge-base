@@ -69,6 +69,7 @@ class ProjectMapping:
         project = ProjectModel(
             id=str(uuid4()),
             name=folder_name,
+            folder_path=str(folder_path),  # 保存项目源文件夹路径
             description=f"Auto-synced from {folder_path}",
             document_count=0,
             chunk_count=0,
@@ -526,6 +527,7 @@ class FileSync:
                 doc_type=doc_type,
                 project_id=self.project_id,
                 filename=relative_path,
+                source_path=str(source_path),  # 传递原始文件路径
                 metadata={"source_path": str(source_path)}
             )
             
@@ -579,6 +581,7 @@ class FileSync:
                 project_id=self.project_id,
                 document_id=doc.id,
                 filename=doc.filename,
+                source_path=str(source_path),  # 传递原始文件路径
                 metadata={"source_path": str(source_path)}
             )
             

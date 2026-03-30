@@ -535,6 +535,7 @@ class HierarchicalSearchService:
                         "content": point.payload.get("content", ""),
                         "document_id": doc_id,
                         "filename": point.payload.get("filename"),
+                        "source_path": point.payload.get("source_path"),  # 原始文件完整路径
                         "chunk_id": point.payload.get("chunk_id"),
                         "score": point.score,
                     })

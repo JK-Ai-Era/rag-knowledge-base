@@ -117,6 +117,7 @@ class SearchService:
                         search_type="semantic",
                         metadata={
                             "filename": hit.payload.get("filename"),
+                            "source_path": hit.payload.get("source_path"),  # 原始文件完整路径
                             "chunk_id": hit.payload.get("chunk_id"),
                             "start_line": hit.payload.get("start_line"),
                             "end_line": hit.payload.get("end_line"),
@@ -198,6 +199,7 @@ class SearchService:
                         search_type="keyword",
                         metadata={
                             "filename": doc.filename if doc else None,
+                            "source_path": doc.source_path if doc else None,  # 原始文件完整路径
                             "chunk_id": chunk_id,
                             "start_line": metadata.get("start_line"),
                             "end_line": metadata.get("end_line"),
@@ -246,6 +248,7 @@ class SearchService:
                         search_type="hierarchical",
                         metadata={
                             "filename": chunk_data.get("filename"),
+                            "source_path": chunk_data.get("source_path"),  # 原始文件完整路径
                             "chunk_id": chunk_data.get("chunk_id"),
                             "summary": next(
                                 (s["summary"] for s in summaries if s["document_id"] == chunk_data.get("document_id")),

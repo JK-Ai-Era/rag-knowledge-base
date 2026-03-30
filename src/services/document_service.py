@@ -81,6 +81,7 @@ class DocumentService:
         project_id: str,
         document_id: Optional[str] = None,
         filename: Optional[str] = None,
+        source_path: Optional[str] = None,  # 原始文件完整路径（用于 Agent read 源文件）
         metadata: Optional[Dict[str, Any]] = None,
         on_progress: Optional[Callable[[str, int, int], None]] = None
     ) -> DocumentProcessingResult:
@@ -120,6 +121,9 @@ class DocumentService:
                         success=False,
                         error_message=f"文档不存在: {document_id}"
                     )
+                # 更新 source_path（重新索引时）
+                if source_path:
+                    doc.source_path = source_path
                 old_chunk_count = doc.chunk_count
             else:
                 doc = self._create_document_record(
@@ -127,6 +131,7 @@ class DocumentService:
                     filename=actual_filename,
                     doc_type=doc_type,
                     file_path=str(file_path),
+                    source_path=source_path,
                     metadata=metadata
                 )
                 old_chunk_count = 0
@@ -237,6 +242,7 @@ class DocumentService:
         filename: str,
         doc_type: str,
         file_path: str,
+        source_path: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ) -> DocumentModel:
         """创建文档记录"""
@@ -251,6 +257,7 @@ class DocumentService:
             doc_type=doc_type,
             file_size=file_size,
             file_path=file_path,
+            source_path=source_path,  # 保存原始文件路径
             status="processing",
             metadata_json=json.dumps(metadata) if metadata else None,
         )
@@ -360,6 +367,7 @@ class DocumentService:
                 "document_id": document_id,
                 "content": chunk.content,
                 "filename": filename,
+                "source_path": source_path,  # 原始文件完整路径（Agent read 源文件用）
                 "start_line": metadata.get("start_line"),
                 "end_line": metadata.get("end_line"),
                 "symbols": metadata.get("symbols", []),

@@ -34,6 +34,7 @@ class Project(Base):
     
     id = Column(String(36), primary_key=True, default=generate_uuid)
     name = Column(String(100), nullable=False, unique=True)
+    folder_path = Column(String(500), nullable=True)  # 项目源文件夹路径（用于 Agent read 源文件）
     description = Column(Text, nullable=True)
     document_count = Column(Integer, default=0)
     chunk_count = Column(Integer, default=0)
@@ -51,7 +52,8 @@ class Document(Base):
     filename = Column(String(255), nullable=False)
     doc_type = Column(String(20), nullable=False)
     file_size = Column(Integer, default=0)
-    file_path = Column(String(500), nullable=True)  # 原始文件完整路径
+    file_path = Column(String(500), nullable=True)  # 复制后的文件路径（项目目录内）
+    source_path = Column(String(500), nullable=True)  # 原始文件完整路径（Agent read 源文件用）
     chunk_count = Column(Integer, default=0)
     status = Column(String(20), default="pending")  # pending, processing, completed, failed
     error_message = Column(Text, nullable=True)

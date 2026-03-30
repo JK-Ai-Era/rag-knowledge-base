@@ -1,6 +1,7 @@
 """文档管理命令"""
 
 from pathlib import Path
+from typing import Optional
 
 import typer
 from rich.console import Console
@@ -13,12 +14,39 @@ app = typer.Typer(name="doc", help="文档管理")
 console = Console()
 
 
+def _resolve_project_id(project: str) -> Optional[str]:
+    """解析项目 ID（支持项目名称或 ID）"""
+    # 如果是有效的 UUID 格式，直接返回
+    if len(project) == 36 and project.count('-') == 4:
+        return project
+    
+    # 否则按名称查找
+    result = api_client.get("/api/v1/projects")
+    if result and result.get("success"):
+        data = result.get("data", {})
+        projects = data if isinstance(data, list) else data.get("items", [])
+        
+        for p in projects:
+            if isinstance(p, dict):
+                # 精确匹配名称
+                if p.get("name") == project:
+                    return p.get("id")
+                # 模糊匹配名称
+                if project.lower() in (p.get("name", "")).lower():
+                    return p.get("id")
+    
+    return project  # 找不到就原样返回，让 API 报错
+
+
 @app.command("list")
 def list_documents(
-    project_id: str = typer.Argument(..., help="项目ID"),
+    project: str = typer.Argument(..., help="项目名称或ID"),
     limit: int = typer.Option(100, "--limit", "-l", help="返回数量"),
 ):
     """列出项目文档"""
+    # 解析项目名称为 ID
+    project_id = _resolve_project_id(project)
+    
     result = api_client.get(
         f"/api/v1/projects/{project_id}/documents",
         params={"limit": limit},
@@ -41,20 +69,34 @@ def list_documents(
     table.add_column("文件名", style="magenta")
     table.add_column("大小", justify="right")
     table.add_column("类型", style="green")
+    table.add_column("分块", justify="right")
     table.add_column("状态", justify="center")
     
     for doc in data:
         doc_id = doc.get("id", "")
+        filename = doc.get("filename", "-")
         file_size = doc.get("file_size", 0)
-        file_type = Path(doc.get("name", "unknown")).suffix or "unknown"
-        index_status = "✓ 已索引" if doc.get("indexed") else "○ 待索引"
+        doc_type = doc.get("doc_type", "unknown")
+        chunk_count = doc.get("chunk_count", 0)
+        status = doc.get("status", "unknown")
+        
+        # 状态显示
+        if status == "completed":
+            status_display = "✅ 完成"
+        elif status == "failed":
+            status_display = "❌ 失败"
+        elif status == "processing":
+            status_display = "⏳ 处理中"
+        else:
+            status_display = status
         
         table.add_row(
             doc_id[:12] + "..." if len(doc_id) > 12 else doc_id,
-            doc.get("name", "-"),
+            filename[:40] + "..." if len(filename) > 40 else filename,
             format_size(file_size) if file_size else "-",
-            file_type,
-            index_status,
+            doc_type,
+            str(chunk_count),
+            status_display,
         )
     
     console.print(table)

@@ -575,6 +575,7 @@ class DocumentService:
         # 注意：saved_count 是保存的 chunks 数，不是向量化成功数
         # 向量化进度可通过 queue_manager.get_queue_status() 查询
         return {
+            "success_count": len(chunk_records),  # chunks 已保存到数据库（队列模式下视为成功）
             "saved_count": len(chunk_records),  # chunks 已保存到数据库
             "queued": queue_result["queued"],   # 已加入队列待处理
             "skipped": queue_result["skipped"], # 已存在跳过

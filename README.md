@@ -97,7 +97,7 @@
 
 ```bash
 # 克隆项目
-git clone https://github.com/jk576/rag-knowledge-base.git
+git clone https://github.com/JK-Ai-Era/rag-knowledge-base.git
 cd rag-knowledge-base
 
 # 创建虚拟环境
@@ -386,5 +386,5 @@ ragctl project reindex <项目名>
 ---
 
 <p align="center">
-  Made with ❤️ by <a href="https://github.com/jk576">jk576</a>
+  Made with ❤️ by <a href="https://github.com/JK-Ai-Era">JK-Ai-Era</a>
 </p>
